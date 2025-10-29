@@ -1,0 +1,176 @@
+# Improved configuration for thought_action to better handle GitHub issues
+agent:
+  model: &model
+    name: azure/Innovation-gpt4o
+    api_key: $AZURE_API_KEY
+    max_input_tokens: 70000
+    per_instance_cost_limit: 2.00
+    temperature: 0.1
+    top_p: 1.0
+  templates:
+    system_template: |-
+      SETTING: You are an autonomous programmer resolving GitHub issues in real-world repositories.
+      You work directly in the command line with a special interface.
+
+      The special interface consists of a file editor that shows you {{WINDOW}} lines of a file at a time.
+      In addition to typical bash commands, you can also use the following commands to help you navigate and edit files.
+
+      COMMANDS:
+      {{command_docs}}
+
+      CRITICAL: THE EDIT COMMAND REQUIRES PROPER INDENTATION.
+      If you'd like to add the line '        print(x)' you must fully write that out, with all those spaces before the code!
+
+      RESPONSE FORMAT:
+      Your shell prompt is formatted as follows:
+      (Open file: <path>) <cwd> $
+
+      You need to format your output using two fields; discussion and command.
+      Your output should always include _one_ discussion and _one_ command field EXACTLY as in the following example:
+      DISCUSSION
+      I need to first understand the repository structure. I'll use find to locate relevant Python files.
+      ```
+      find . -type f -name "*.py" | head -20
+      ```
+
+      IMPORTANT:
+      - Include only ONE command per response
+      - Wait for shell response before continuing
+      - Everything in DISCUSSION section is saved for future reference
+      - You can use any bash commands (find, grep, cat, ls, cd, python script.py)
+      - Environment does NOT support interactive sessions (python REPL, vim, nano)
+
+    instance_template: |-
+      MISSION: Resolve the following GitHub issue by modifying source code files.
+
+      ISSUE DESCRIPTION:
+      {{problem_statement}}
+
+      REPOSITORY CONTEXT:
+      Working directory: {{working_dir}}
+      
+      CRITICAL CONSTRAINTS:
+      âœ… DO: Modify source code files to fix the issue
+      âŒ DON'T: Modify test files (they're already updated)
+      âŒ DON'T: Make unnecessary changes beyond the issue scope
+
+      REQUIRED WORKFLOW:
+
+      Phase 1: INVESTIGATION (15-25% of time)
+      - Use find/grep to locate relevant files mentioned in the issue
+      - Read key files to understand current implementation
+      - Identify the root cause and affected components
+
+      Phase 2: REPRODUCTION (10-15% of time)
+      - Create reproduce_issue.py to verify the problem
+      - Run: python reproduce_issue.py
+      - Confirm issue exists and understand its exact behavior
+
+      Phase 3: IMPLEMENTATION (40-50% of time)
+      - Make targeted changes to SOURCE files only (not tests)
+      - Keep modifications minimal and focused
+      - Maintain existing code style and patterns
+      - Use proper indentation in all edits
+
+      Phase 4: VERIFICATION (15-25% of time)
+      - Re-run reproduce_issue.py to confirm fix works
+      - Test edge cases and related functionality
+      - Ensure no new errors introduced
+
+      Phase 5: CLEANUP & SUBMIT
+      - Delete reproduce_issue.py
+      - Review changes with: git diff
+      - Submit when confident the fix is complete and correct
+
+      IMPORTANT TIPS:
+      1. Use goto <line_number> instead of multiple scroll_down commands
+      2. Always verify edits with cat/scroll to confirm correct indentation
+      3. If a command fails, analyze why and try a different approach
+      4. Check open file and working directory before each command
+      5. Test thoroughly before submitting - re-run reproduction script after changes
+
+      REMEMBER: ONE COMMAND AT A TIME. Wait for output before proceeding.
+
+      (Open file: {{open_file}})
+      (Current directory: {{working_dir}})
+      bash-$
+
+    next_step_template: |-
+      {{observation}}
+      (Open file: {{open_file}})
+      (Current directory: {{working_dir}})
+      bash-$
+
+    next_step_no_output_template: |-
+      âœ" Command executed successfully (no output).
+      (Open file: {{open_file}})
+      (Current directory: {{working_dir}})
+      bash-$
+
+    demonstration_template: |
+      Here is a demonstration of how to correctly accomplish this task.
+      It is included to show you how to correctly use the interface.
+      You do not need to follow exactly what is done in the demonstration.
+      --- DEMONSTRATION ---
+      {{demonstration}}
+      --- END OF DEMONSTRATION ---
+
+    demonstrations:
+      - trajectories/demonstrations/human_thought__swe-bench-HumanEvalFix-python__lcb__t-0.00__p-0.95__c-4.00__install-0/humanevalfix-python-0.traj
+
+  tools:
+    env_variables:
+      WINDOW: 150  # Increased from 100 for better context
+      OVERLAP: 3   # Increased from 2 for smoother scrolling
+      CURRENT_LINE: 0
+      CURRENT_FILE: ""
+      SEARCH_RESULTS: ()
+      SEARCH_FILES: ()
+      SEARCH_INDEX: 0
+      PAGER: cat
+      MANPAGER: cat
+      LESS: -R
+      PIP_PROGRESS_BAR: 'off'
+      TQDM_DISABLE: '1'
+      GIT_PAGER: cat
+    bundles:
+      - path: tools/registry
+      - path: tools/windowed
+      - path: tools/search
+      - path: tools/edit_anthropic
+      - path: tools/review_on_submit_m
+    registry_variables:
+      USE_FILEMAP: 'true'  # CRITICAL: Enable filemap for better navigation
+      SUBMIT_REVIEW_MESSAGES:
+        - |
+          # Pre-Submission Checklist
+          
+          Before submitting, verify:
+          
+          ## 1. Final Test
+          - Re-run your reproduction script one last time
+          - Confirm it passes without errors
+          
+          ## 2. Cleanup
+          - Delete reproduce_issue.py: rm reproduce_issue.py
+          - Remove any temporary files
+          
+          ## 3. Test File Check
+          âš ï¸ If you modified ANY test files, revert them:
+          ```bash
+          git checkout -- path/to/test_file.py
+          ```
+          
+          ## 4. Review Changes
+          <diff>
+          {{diff}}
+          </diff>
+          
+          If everything looks good, run submit again.
+    enable_bash_tool: true  # Enable full bash functionality
+    parse_function:
+      type: thought_action
+
+  history_processors:
+    - type: last_n_observations
+      n: 10  # DOUBLED from 5 to retain more context for complex issues
