@@ -41,6 +41,7 @@ agent:
     bundles:
       - path: tools/registry
       - path: tools/edit_anthropic
+      - path: tools/smart_test_runner
       - path: tools/review_on_submit_m
     registry_variables:
       USE_FILEMAP: 'true'
